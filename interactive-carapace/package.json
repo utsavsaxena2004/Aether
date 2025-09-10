@@ -1,0 +1,54 @@
+{
+  "name": "interactive-carapace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Aether Interactive Frontend - AI-driven data visualization interface with real-time chat and visual query capabilities",
+  "keywords": [
+    "nextjs",
+    "react",
+    "ai",
+    "data-visualization",
+    "echarts",
+    "websocket",
+    "chatbot"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/aether.git"
+  },
+  "author": "Aether Team",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/your-username/aether/issues"
+  },
+  "homepage": "https://github.com/your-username/aether#readme",
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build --turbopack",
+    "start": "next start",
+    "lint": "eslint",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "next": "15.5.2",
+    "zustand": "^5.0.0",
+    "echarts": "^5.5.0",
+    "echarts-for-react": "^3.0.2",
+    "lucide-react": "^0.462.0",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^2.5.2"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@tailwindcss/postcss": "^4",
+    "tailwindcss": "^4",
+    "eslint": "^9",
+    "eslint-config-next": "15.5.2",
+    "@eslint/eslintrc": "^3"
+  }
+}

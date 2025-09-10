@@ -1,0 +1,55 @@
+# Dependencies
+node_modules
+npm-debug.log*
+.npm
+.pnpm
+.yarn
+.yarn-integrity
+
+# Build outputs
+.next
+dist
+build
+out
+
+# Environment files
+.env*
+!.env.example
+
+# IDE and editor files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Git
+.git
+.gitignore
+
+# Testing
+coverage
+.nyc_output
+
+# Logs
+logs
+*.log
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Database
+*.db
+*.sqlite
+
+# Docker
+docker-compose.override.yml
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini

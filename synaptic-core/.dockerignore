@@ -1,0 +1,41 @@
+# Build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go build artifacts
+bin/
+obj/
+
+# Test binary, build artifact
+aether-synaptic-core
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment files
+.env.local
+.env.*.local
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/
+
+# Git
+.git/
+.gitignore
+
+# Docker
+.dockerignore
+
+# Documentation
+README.md
+docs/

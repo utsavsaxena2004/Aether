@@ -1,0 +1,44 @@
+{
+  "name": "aether-project",
+  "version": "1.0.0",
+  "description": "AI-driven web application for conversational data analysis with visual query capabilities",
+  "private": true,
+  "workspaces": [
+    "interactive-carapace",
+    "synaptic-core"
+  ],
+  "scripts": {
+    "dev": "concurrently \"pnpm --filter synaptic-core dev\" \"pnpm --filter interactive-carapace dev\"",
+    "build": "pnpm --filter synaptic-core build && pnpm --filter interactive-carapace build",
+    "start": "pnpm --filter synaptic-core start",
+    "test": "pnpm --filter synaptic-core test && pnpm --filter interactive-carapace test"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/aether.git"
+  },
+  "keywords": [
+    "ai",
+    "data-analysis",
+    "visualization",
+    "chatbot",
+    "websocket",
+    "nextjs",
+    "go",
+    "echarts",
+    "gemini"
+  ],
+  "author": "Aether Team",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/your-username/aether/issues"
+  },
+  "homepage": "https://github.com/your-username/aether#readme"
+}

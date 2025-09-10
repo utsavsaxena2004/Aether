@@ -1,0 +1,429 @@
+package services
+
+import (
+\t\"encoding/csv\"
+\t\"fmt\"
+\t\"io\"
+\t\"log\"
+\t\"math\"
+\t\"mime/multipart\"
+\t\"sort\"
+\t\"strconv\"
+\t\"strings\"
+\t\"time\"
+)
+
+// DataProcessor handles CSV file analysis and processing
+type DataProcessor struct {
+\tredis *RedisService
+}
+
+// NewDataProcessor creates a new data processor
+func NewDataProcessor(redis *RedisService) *DataProcessor {
+\treturn &DataProcessor{
+\t\tredis: redis,
+\t}
+}
+
+// ProcessCSV analyzes a CSV file and returns a summary
+func (dp *DataProcessor) ProcessCSV(file multipart.File, header *multipart.FileHeader, sessionID string) (*DataSummary, error) {
+\tlog.Printf(\"\ud83d\udcc4 Processing CSV file: %s (%.2f KB)\", header.Filename, float64(header.Size)/1024)
+
+\t// Read CSV data
+\treader := csv.NewReader(file)
+\treader.LazyQuotes = true
+\treader.TrimLeadingSpace = true
+
+\t// Read all records
+\trecords, err := reader.ReadAll()
+\tif err != nil {
+\t\treturn nil, fmt.Errorf(\"failed to read CSV: %w\", err)
+\t}
+
+\tif len(records) == 0 {
+\t\treturn nil, fmt.Errorf(\"CSV file is empty\")
+\t}
+
+\t// Extract headers
+\theaders := records[0]
+\tdata := records[1:]
+
+\tif len(data) == 0 {
+\t\treturn nil, fmt.Errorf(\"CSV file contains only headers\")
+\t}
+
+\t// Analyze columns
+\tcolumns := make([]ColumnInfo, len(headers))
+\tfor i, header := range headers {
+\t\tcolumns[i] = dp.analyzeColumn(header, data, i)
+\t}
+
+\t// Calculate overall statistics
+\tstats := dp.calculateOverallStats(data, columns)
+
+\t// Create summary
+\tsummary := &DataSummary{
+\t\tFileName:    header.Filename,
+\t\tRowCount:    len(data),
+\t\tColumnCount: len(headers),
+\t\tColumns:     columns,
+\t\tStats:       stats,
+\t\tUploadedAt:  time.Now(),
+\t}
+
+\t// Store in Redis
+\tif dp.redis != nil {
+\t\tif err := dp.redis.SetDataSummary(sessionID, summary); err != nil {
+\t\t\tlog.Printf(\"\u26a0\ufe0f Failed to store data summary in Redis: %v\", err)
+\t\t}
+\t}
+
+\tlog.Printf(\"\u2705 CSV processed successfully: %d rows, %d columns\", len(data), len(headers))
+\treturn summary, nil
+}
+
+// analyzeColumn analyzes a single column and determines its type and statistics
+func (dp *DataProcessor) analyzeColumn(name string, data [][]string, colIndex int) ColumnInfo {
+\tif colIndex >= len(data[0]) {
+\t\treturn ColumnInfo{
+\t\t\tName:     name,
+\t\t\tType:     \"unknown\",
+\t\t\tSamples:  []string{},
+\t\t\tNullRate: 1.0,
+\t\t}
+\t}
+
+\t// Collect all values for this column
+\tvalues := make([]string, 0, len(data))
+\tnullCount := 0
+
+\tfor _, row := range data {
+\t\tif colIndex < len(row) {
+\t\t\tval := strings.TrimSpace(row[colIndex])
+\t\t\tif val == \"\" || strings.ToLower(val) == \"null\" || strings.ToLower(val) == \"na\" {
+\t\t\t\tnullCount++
+\t\t\t} else {
+\t\t\t\tvalues = append(values, val)
+\t\t\t}
+\t\t} else {
+\t\t\tnullCount++
+\t\t}
+\t}
+
+\tnullRate := float64(nullCount) / float64(len(data))
+
+\t// Determine data type and calculate statistics
+\tdataType, stats := dp.determineTypeAndStats(values)
+
+\t// Get sample values (up to 5)
+\tsamples := dp.getSampleValues(values, 5)
+
+\treturn ColumnInfo{
+\t\tName:     name,
+\t\tType:     dataType,
+\t\tSamples:  samples,
+\t\tNullRate: nullRate,
+\t\tStats:    stats,
+\t}
+}
+
+// determineTypeAndStats determines the data type and calculates relevant statistics
+func (dp *DataProcessor) determineTypeAndStats(values []string) (string, interface{}) {
+\tif len(values) == 0 {
+\t\treturn \"empty\", nil
+\t}
+
+\t// Try to determine if it's numeric
+\tnumericValues := make([]float64, 0, len(values))
+\tnumericCount := 0
+
+\tfor _, val := range values {
+\t\tif num, err := strconv.ParseFloat(val, 64); err == nil {
+\t\t\tnumericValues = append(numericValues, num)
+\t\t\tnumericCount++
+\t\t}
+\t}
+
+\t// If more than 80% of values are numeric, treat as numeric
+\tif float64(numericCount)/float64(len(values)) > 0.8 {
+\t\treturn \"numeric\", dp.calculateNumericStats(numericValues)
+\t}
+
+\t// Try to determine if it's date/time
+\tdateCount := 0
+\tfor _, val := range values {
+\t\tif dp.isDateLike(val) {
+\t\t\tdateCount++
+\t\t}
+\t}
+
+\tif float64(dateCount)/float64(len(values)) > 0.6 {
+\t\treturn \"datetime\", dp.calculateDateStats(values)
+\t}
+
+\t// Check if it's boolean-like
+\tif dp.isBooleanLike(values) {
+\t\treturn \"boolean\", dp.calculateBooleanStats(values)
+\t}
+
+\t// Default to categorical/text
+\treturn \"categorical\", dp.calculateCategoricalStats(values)
+}
+
+// calculateNumericStats calculates statistics for numeric columns
+func (dp *DataProcessor) calculateNumericStats(values []float64) map[string]interface{} {
+\tif len(values) == 0 {
+\t\treturn map[string]interface{}{\"count\": 0}
+\t}
+
+\t// Sort for percentiles
+\tsort.Float64s(values)
+
+\t// Calculate basic stats
+\tsum := 0.0
+\tmin := values[0]
+\tmax := values[len(values)-1]
+
+\tfor _, val := range values {
+\t\tsum += val
+\t}
+
+\tmean := sum / float64(len(values))
+
+\t// Calculate standard deviation
+\tvarSum := 0.0
+\tfor _, val := range values {
+\t\tvarSum += math.Pow(val-mean, 2)
+\t}
+\tstdDev := math.Sqrt(varSum / float64(len(values)))
+
+\t// Calculate percentiles
+\tq25 := dp.percentile(values, 0.25)
+\tmedian := dp.percentile(values, 0.5)
+\tq75 := dp.percentile(values, 0.75)
+
+\treturn map[string]interface{}{
+\t\t\"count\":      len(values),
+\t\t\"mean\":       mean,
+\t\t\"std\":        stdDev,
+\t\t\"min\":        min,
+\t\t\"max\":        max,
+\t\t\"q25\":        q25,
+\t\t\"median\":     median,
+\t\t\"q75\":        q75,
+\t\t\"unique\":     dp.countUnique(values),
+\t}
+}
+
+// calculateCategoricalStats calculates statistics for categorical columns
+func (dp *DataProcessor) calculateCategoricalStats(values []string) map[string]interface{} {
+\t// Count occurrences
+\tcounts := make(map[string]int)
+\tfor _, val := range values {
+\t\tcounts[val]++
+\t}
+
+\t// Find most common values
+\ttype valueCount struct {
+\t\tValue string `json:\"value\"`
+\t\tCount int    `json:\"count\"`
+\t}
+
+\tvalueCounts := make([]valueCount, 0, len(counts))
+\tfor val, count := range counts {
+\t\tvalueCounts = append(valueCounts, valueCount{Value: val, Count: count})
+\t}
+
+\t// Sort by count (descending)
+\tsort.Slice(valueCounts, func(i, j int) bool {
+\t\treturn valueCounts[i].Count > valueCounts[j].Count
+\t})
+
+\t// Take top 10
+\ttopValues := valueCounts
+\tif len(topValues) > 10 {
+\t\ttopValues = valueCounts[:10]
+\t}
+
+\treturn map[string]interface{}{
+\t\t\"count\":        len(values),
+\t\t\"unique\":       len(counts),
+\t\t\"top_values\":   topValues,
+\t\t\"most_common\": valueCounts[0].Value,
+\t}
+}
+
+// calculateBooleanStats calculates statistics for boolean columns
+func (dp *DataProcessor) calculateBooleanStats(values []string) map[string]interface{} {
+\ttrueCount := 0
+\tfalseCount := 0
+
+\tfor _, val := range values {
+\t\tval = strings.ToLower(strings.TrimSpace(val))
+\t\tif val == \"true\" || val == \"1\" || val == \"yes\" || val == \"y\" {
+\t\t\ttrueCount++
+\t\t} else {
+\t\t\tfalseCount++
+\t\t}
+\t}
+
+\treturn map[string]interface{}{
+\t\t\"count\":       len(values),
+\t\t\"true_count\":  trueCount,
+\t\t\"false_count\": falseCount,
+\t\t\"true_rate\":   float64(trueCount) / float64(len(values)),
+\t}
+}
+
+// calculateDateStats calculates statistics for date columns
+func (dp *DataProcessor) calculateDateStats(values []string) map[string]interface{} {
+\tdates := make([]time.Time, 0, len(values))
+
+\tfor _, val := range values {
+\t\tif date := dp.parseDate(val); !date.IsZero() {
+\t\t\tdates = append(dates, date)
+\t\t}
+\t}
+
+\tif len(dates) == 0 {
+\t\treturn map[string]interface{}{\"count\": 0}
+\t}
+
+\t// Sort dates
+\tsort.Slice(dates, func(i, j int) bool {
+\t\treturn dates[i].Before(dates[j])
+\t})
+
+\treturn map[string]interface{}{
+\t\t\"count\":      len(dates),
+\t\t\"min_date\":   dates[0].Format(\"2006-01-02\"),
+\t\t\"max_date\":   dates[len(dates)-1].Format(\"2006-01-02\"),
+\t\t\"date_range\": dates[len(dates)-1].Sub(dates[0]).Hours() / 24, // days
+\t}
+}
+
+// calculateOverallStats calculates dataset-wide statistics
+func (dp *DataProcessor) calculateOverallStats(data [][]string, columns []ColumnInfo) map[string]interface{} {
+\t// Count column types
+\ttypeCounts := make(map[string]int)
+\tfor _, col := range columns {
+\t\ttypeCounts[col.Type]++
+\t}
+
+\t// Calculate data quality metrics
+\ttotalCells := len(data) * len(columns)
+\tnullCells := 0
+\tfor _, col := range columns {
+\t\tnullCells += int(col.NullRate * float64(len(data)))
+\t}
+
+\tcompleteness := 1.0 - (float64(nullCells) / float64(totalCells))
+
+\treturn map[string]interface{}{
+\t\t\"total_cells\":    totalCells,
+\t\t\"null_cells\":     nullCells,
+\t\t\"completeness\":   completeness,
+\t\t\"column_types\":   typeCounts,
+\t\t\"memory_usage\":   dp.estimateMemoryUsage(data),
+\t\t\"processed_at\":   time.Now().Format(time.RFC3339),
+\t}
+}
+
+// Helper functions
+
+func (dp *DataProcessor) percentile(sortedValues []float64, p float64) float64 {
+\tif len(sortedValues) == 0 {
+\t\treturn 0
+\t}
+\tif len(sortedValues) == 1 {
+\t\treturn sortedValues[0]
+\t}
+
+\tindex := p * float64(len(sortedValues)-1)
+\tlower := int(math.Floor(index))
+\tupper := int(math.Ceil(index))
+
+\tif lower == upper {
+\t\treturn sortedValues[lower]
+\t}
+
+\tweight := index - float64(lower)
+\treturn sortedValues[lower]*(1-weight) + sortedValues[upper]*weight
+}
+
+func (dp *DataProcessor) countUnique(values []float64) int {
+\tseen := make(map[float64]bool)
+\tfor _, val := range values {
+\t\tseen[val] = true
+\t}
+\treturn len(seen)
+}
+
+func (dp *DataProcessor) getSampleValues(values []string, count int) []string {
+\tif len(values) <= count {
+\t\treturn values
+\t}
+
+\tsamples := make([]string, count)
+\tstep := len(values) / count
+\tfor i := 0; i < count; i++ {
+\t\tsamples[i] = values[i*step]
+\t}
+\treturn samples
+}
+
+func (dp *DataProcessor) isDateLike(value string) bool {
+\treturn !dp.parseDate(value).IsZero()
+}
+
+func (dp *DataProcessor) parseDate(value string) time.Time {
+\t// Try common date formats
+\tformats := []string{
+\t\t\"2006-01-02\",
+\t\t\"01/02/2006\",
+\t\t\"02/01/2006\",
+\t\t\"2006-01-02 15:04:05\",
+\t\t\"01/02/2006 15:04:05\",
+\t\ttime.RFC3339,
+\t}
+
+\tfor _, format := range formats {
+\t\tif date, err := time.Parse(format, value); err == nil {
+\t\t\treturn date
+\t\t}
+\t}
+
+\treturn time.Time{}
+}
+
+func (dp *DataProcessor) isBooleanLike(values []string) bool {
+\tboolCount := 0
+\tfor _, val := range values {
+\t\tval = strings.ToLower(strings.TrimSpace(val))
+\t\tif val == \"true\" || val == \"false\" || val == \"1\" || val == \"0\" || 
+\t\t   val == \"yes\" || val == \"no\" || val == \"y\" || val == \"n\" {
+\t\t\tboolCount++
+\t\t}
+\t}
+\treturn float64(boolCount)/float64(len(values)) > 0.8
+}
+
+func (dp *DataProcessor) estimateMemoryUsage(data [][]string) string {
+\ttotalChars := 0
+\tfor _, row := range data {
+\t\tfor _, cell := range row {
+\t\t\ttotalChars += len(cell)
+\t\t}
+\t}
+
+\t// Rough estimate: each character takes 1 byte + overhead
+\tbytes := totalChars * 2 // rough overhead factor
+
+\tif bytes < 1024 {
+\t\treturn fmt.Sprintf(\"%d B\", bytes)
+\t} else if bytes < 1024*1024 {
+\t\treturn fmt.Sprintf(\"%.1f KB\", float64(bytes)/1024)
+\t} else {
+\t\treturn fmt.Sprintf(\"%.1f MB\", float64(bytes)/(1024*1024))
+\t}
+}

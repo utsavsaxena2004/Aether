@@ -1,0 +1,57 @@
+services:
+  # Redis service for session caching
+  redis:
+    image: redis:7-alpine
+    container_name: aether-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # Backend service (Go API)
+  synaptic-core:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: aether-synaptic-core
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - REDIS_ADDR=redis:6379
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./synaptic-core:/app/synaptic-core
+    env_file:
+      - ./synaptic-core/.env
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend service (Next.js app)
+  interactive-carapace:
+    build:
+      context: ./interactive-carapace
+      dockerfile: Dockerfile
+    container_name: aether-interactive-carapace
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_WS_URL=ws://synaptic-core:8080/ws
+      - NEXT_PUBLIC_API_URL=http://synaptic-core:8080
+    depends_on:
+      - synaptic-core
+
+volumes:
+  redis_data:

@@ -1,0 +1,189 @@
+package handlers
+
+import (
+\t\"encoding/json\"
+\t\"fmt\"
+\t\"log\"
+\t\"net/http\"
+\t\"strings\"
+
+\t\"github.com/aether-project/synaptic-core/services\"
+)
+
+// UploadHandler handles file upload operations
+type UploadHandler struct {
+\tprocessor *services.DataProcessor
+\tredis     *services.RedisService
+}
+
+// NewUploadHandler creates a new upload handler
+func NewUploadHandler(processor *services.DataProcessor, redis *services.RedisService) *UploadHandler {
+\treturn &UploadHandler{
+\t\tprocessor: processor,
+\t\tredis:     redis,
+\t}
+}
+
+// UploadResponse represents the response from file upload
+type UploadResponse struct {
+\tSuccess   bool                    `json:\"success\"`
+\tMessage   string                  `json:\"message\"`
+\tSummary   *services.DataSummary   `json:\"summary,omitempty\"`
+\tSessionID string                  `json:\"sessionId,omitempty\"`
+\tError     string                  `json:\"error,omitempty\"`
+}
+
+// HandleUpload processes CSV file uploads
+func (uh *UploadHandler) HandleUpload(w http.ResponseWriter, r *http.Request) {
+\tw.Header().Set(\"Content-Type\", \"application/json\")
+
+\tif r.Method != http.MethodPost {
+\t\tw.WriteHeader(http.StatusMethodNotAllowed)
+\t\tjson.NewEncoder(w).Encode(UploadResponse{
+\t\t\tSuccess: false,
+\t\t\tError:   \"Only POST method allowed\",
+\t\t})
+\t\treturn
+\t}
+
+\t// Parse multipart form
+\terr := r.ParseMultipartForm(50 << 20) // 50 MB max
+\tif err != nil {
+\t\tw.WriteHeader(http.StatusBadRequest)
+\t\tjson.NewEncoder(w).Encode(UploadResponse{
+\t\t\tSuccess: false,
+\t\t\tError:   \"Failed to parse multipart form: \" + err.Error(),
+\t\t})
+\t\treturn
+\t}
+
+\t// Get session ID from form or header
+\tsessionID := r.FormValue(\"sessionId\")
+\tif sessionID == \"\" {
+\t\tsessionID = r.Header.Get(\"X-Session-ID\")
+\t}
+
+\tif sessionID == \"\" {
+\t\tw.WriteHeader(http.StatusBadRequest)
+\t\tjson.NewEncoder(w).Encode(UploadResponse{
+\t\t\tSuccess: false,
+\t\t\tError:   \"Session ID is required\",
+\t\t})
+\t\treturn
+\t}
+
+\t// Get the file from the request
+\tfile, header, err := r.FormFile(\"file\")
+\tif err != nil {
+\t\tw.WriteHeader(http.StatusBadRequest)
+\t\tjson.NewEncoder(w).Encode(UploadResponse{
+\t\t\tSuccess: false,
+\t\t\tError:   \"No file provided or invalid file: \" + err.Error(),
+\t\t})
+\t\treturn
+\t}
+\tdefer file.Close()
+
+\t// Validate file type
+\tif !uh.isValidCSVFile(header.Filename) {
+\t\tw.WriteHeader(http.StatusBadRequest)
+\t\tjson.NewEncoder(w).Encode(UploadResponse{
+\t\t\tSuccess: false,
+\t\t\tError:   \"Invalid file type. Only CSV files are allowed\",
+\t\t})
+\t\treturn
+\t}
+
+\t// Check file size (50MB limit)
+\tif header.Size > 50<<20 {
+\t\tw.WriteHeader(http.StatusBadRequest)
+\t\tjson.NewEncoder(w).Encode(UploadResponse{
+\t\t\tSuccess: false,
+\t\t\tError:   \"File too large. Maximum size is 50MB\",
+\t\t})
+\t\treturn
+\t}
+
+\tlog.Printf(\"\ud83d\udcc1 Processing file upload: %s (%.2f KB) for session %s\", 
+\t\theader.Filename, float64(header.Size)/1024, sessionID)
+
+\t// Process the CSV file
+\tsummary, err := uh.processor.ProcessCSV(file, header, sessionID)
+\tif err != nil {
+\t\tw.WriteHeader(http.StatusInternalServerError)
+\t\tjson.NewEncoder(w).Encode(UploadResponse{
+\t\t\tSuccess: false,
+\t\t\tError:   \"Failed to process CSV file: \" + err.Error(),
+\t\t})
+\t\treturn
+\t}
+
+\t// Return success response
+\tw.WriteHeader(http.StatusOK)
+\tjson.NewEncoder(w).Encode(UploadResponse{
+\t\tSuccess:   true,
+\t\tMessage:   fmt.Sprintf(\"Successfully processed %s: %d rows, %d columns\", 
+\t\t\t\t\theader.Filename, summary.RowCount, summary.ColumnCount),
+\t\tSummary:   summary,
+\t\tSessionID: sessionID,
+\t})
+
+\tlog.Printf(\"\u2705 File upload completed successfully for session %s\", sessionID)
+}
+
+// GetDataSummary retrieves the data summary for a session
+func (uh *UploadHandler) GetDataSummary(w http.ResponseWriter, r *http.Request) {
+\tw.Header().Set(\"Content-Type\", \"application/json\")
+
+\tif r.Method != http.MethodGet {
+\t\tw.WriteHeader(http.StatusMethodNotAllowed)
+\t\tjson.NewEncoder(w).Encode(map[string]string{
+\t\t\t\"error\": \"Only GET method allowed\",
+\t\t})
+\t\treturn
+\t}
+
+\t// Get session ID from query parameter or header
+\tsessionID := r.URL.Query().Get(\"sessionId\")
+\tif sessionID == \"\" {
+\t\tsessionID = r.Header.Get(\"X-Session-ID\")
+\t}
+
+\tif sessionID == \"\" {
+\t\tw.WriteHeader(http.StatusBadRequest)
+\t\tjson.NewEncoder(w).Encode(map[string]string{
+\t\t\t\"error\": \"Session ID is required\",
+\t\t})
+\t\treturn
+\t}
+
+\t// Get data summary from Redis
+\tif uh.redis == nil {
+\t\tw.WriteHeader(http.StatusServiceUnavailable)
+\t\tjson.NewEncoder(w).Encode(map[string]string{
+\t\t\t\"error\": \"Redis service not available\",
+\t\t})
+\t\treturn
+\t}
+
+\tsummary, err := uh.redis.GetDataSummary(sessionID)
+\tif err != nil {
+\t\tw.WriteHeader(http.StatusNotFound)
+\t\tjson.NewEncoder(w).Encode(map[string]string{
+\t\t\t\"error\": \"No data found for session: \" + err.Error(),
+\t\t})
+\t\treturn
+\t}
+
+\tw.WriteHeader(http.StatusOK)
+\tjson.NewEncoder(w).Encode(map[string]interface{}{
+\t\t\"success\": true,
+\t\t\"summary\": summary,
+\t})
+}
+
+// isValidCSVFile checks if the file has a valid CSV extension
+func (uh *UploadHandler) isValidCSVFile(filename string) bool {
+\tlowerName := strings.ToLower(filename)
+\treturn strings.HasSuffix(lowerName, \".csv\") || strings.HasSuffix(lowerName, \".txt\")
+}
