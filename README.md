@@ -52,11 +52,7 @@
 
 ---
 
-## 🎥 Demo
 
-https://github.com/utsavsaxena2004/Aether/assets/12345678/demo-video.mp4
-
-> *Upload a CSV file, ask questions about your data, and explore insights through interactive visualizations!*
 
 ---
 
