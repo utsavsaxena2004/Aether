@@ -304,7 +304,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 <div align="center">
   
-  Made with ❤️ by the Aether Team
+  Made with ❤️ by the Festival
   
   [![GitHub](https://img.shields.io/badge/GitHub-100000?logo=github&logoColor=white)](https://github.com/utsavsaxena2004/Aether)
   [![Issues](https://img.shields.io/badge/Issues-Welcome-red)](https://github.com/utsavsaxena2004/Aether/issues)
